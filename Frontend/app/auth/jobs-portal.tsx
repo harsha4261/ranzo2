@@ -5,11 +5,26 @@ import { useRouter } from 'expo-router';
 import { Colors, Spacing, Radius } from '@/core/theme';
 import { RanzoButton } from '@/core/widgets';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuthStore } from '@/data/store';
 import { useTranslation } from '@/core/i18n';
 
 export default function JobsPortalScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  const user = useAuthStore((s) => s.user);
+
+  const handleRoleSelect = (role: 'seeker' | 'employer') => {
+    if (user) {
+      const isCompleted = user?.registered_roles?.includes(role);
+      if (isCompleted) {
+        router.push(`/${role}/dashboard` as any);
+      } else {
+        router.push(`/profile-setup?role=${role}` as any);
+      }
+    } else {
+      router.push(`/auth/register?targetRole=${role}` as any);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -32,7 +47,7 @@ export default function JobsPortalScreen() {
         </View>
 
         <View style={styles.cardsContainer}>
-          <TouchableOpacity onPress={() => router.push('/auth/register?targetRole=seeker' as any)}>
+          <TouchableOpacity onPress={() => handleRoleSelect('seeker')}>
             <View style={styles.productCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.cardIconWrap}>
@@ -46,7 +61,7 @@ export default function JobsPortalScreen() {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => router.push('/auth/register?targetRole=employer' as any)}>
+          <TouchableOpacity onPress={() => handleRoleSelect('employer')}>
             <View style={styles.productCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.cardIconWrap}>
@@ -62,21 +77,23 @@ export default function JobsPortalScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.actionRow}>
-          <View style={styles.buttonWrapper}>
-            <RanzoButton
-              label={t('auth.registerBtn')}
-              onPress={() => router.push('/auth/register')}
-            />
+        {!user && (
+          <View style={styles.actionRow}>
+            <View style={styles.buttonWrapper}>
+              <RanzoButton
+                label={t('auth.registerBtn')}
+                onPress={() => router.push({ pathname: '/auth/register', params: { returnUrl: '/auth/jobs-portal' } } as any)}
+              />
+            </View>
+            <View style={styles.buttonWrapper}>
+              <RanzoButton
+                label={t('auth.signInBtn')}
+                variant="secondary"
+                onPress={() => router.push({ pathname: '/auth/login', params: { returnUrl: '/auth/jobs-portal' } } as any)}
+              />
+            </View>
           </View>
-          <View style={styles.buttonWrapper}>
-            <RanzoButton
-              label={t('auth.signInBtn')}
-              variant="secondary"
-              onPress={() => router.push('/auth/login')}
-            />
-          </View>
-        </View>
+        )}
 
         <View style={styles.bottomNavRow}>
           <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/')}>

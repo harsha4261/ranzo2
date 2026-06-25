@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.core.config import settings
@@ -40,3 +42,6 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

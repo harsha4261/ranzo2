@@ -20,6 +20,8 @@ export default function BookScreen() {
   const [location, setLocation] = useState('');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [houseFlat, setHouseFlat] = useState('');
+  const [landmark, setLandmark] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +70,20 @@ export default function BookScreen() {
     try {
       setLoading(true);
       setError(null);
-      await createBooking({ category, location, latitude, longitude });
+      const payload = {
+        category,
+        location: { latitude, longitude },
+        address_details: {
+          house_flat: houseFlat || 'Not specified',
+          landmark: landmark || 'Not specified',
+          city: location.split(',')[0] || 'Unknown',
+          zip_code: '000000'
+        },
+        problem_description: `Request for ${category}`,
+        urgency_level: 'NORMAL'
+      };
+
+      await createBooking(payload);
       // Go back to dashboard to see active booking
       router.replace('/customer/(tabs)');
     } catch (e: any) {
@@ -113,6 +128,22 @@ export default function BookScreen() {
           </Pressable>
         </View>
 
+        <Text style={[styles.label, { marginTop: Spacing.xl }]}>Address Details</Text>
+        <View style={styles.inputWrap}>
+          <RanzoTextField
+            value={houseFlat}
+            onChangeText={setHouseFlat}
+            placeholder="House/Flat No."
+          />
+        </View>
+        <View style={[styles.inputWrap, { marginTop: Spacing.md }]}>
+          <RanzoTextField
+            value={landmark}
+            onChangeText={setLandmark}
+            placeholder="Landmark (Optional)"
+          />
+        </View>
+
         <View style={styles.actionWrap}>
           <RanzoButton label="Find Technicians" onPress={handleBook} loading={loading} />
         </View>
@@ -148,6 +179,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: Radius.md,
     alignItems: 'center', justifyContent: 'center',
+  },
+  inputWrap: {
+    backgroundColor: Colors.surfaceCanvas,
+    borderRadius: Radius.md,
   },
   actionWrap: { marginTop: Spacing.xxl },
   errorText: { color: Colors.danger, marginBottom: Spacing.md },

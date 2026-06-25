@@ -21,6 +21,7 @@ class UserDocument(BaseModel):
     phone: str
     hashed_password: str
     registered_roles: List[str] = Field(default_factory=list)
+    is_admin: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"populate_by_name": True}
@@ -49,11 +50,22 @@ class CustomerProfileDocument(BaseModel):
 class TechnicianProfileDocument(BaseModel):
     id: str = Field(default_factory=_new_id, alias="_id")
     user_id: str
+    name_as_per_adhar: Optional[str] = None
+    adhar_number: Optional[str] = None
+    adhar_image_url: Optional[str] = None
+    photo_url: Optional[str] = None
+    village_city: Optional[str] = None
+    pin_code: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = None
+    preferred_distance: Optional[int] = None
+    terms_agreed: bool = False
     skills: List[str] = Field(default_factory=list)   # max 3, min 1 enforced at schema level
     location: Optional[str] = None
     location_coords: Optional[List[float]] = None
     online_status: bool = False
     is_completed: bool = False
+    is_approved: bool = False
 
     model_config = {"populate_by_name": True}
 

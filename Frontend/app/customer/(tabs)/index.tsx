@@ -5,6 +5,7 @@ import {
   View,
   ActivityIndicator,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, Elevation } from '@/core/theme';
 import { RanzoAppBar, RanzoButton } from '@/core/widgets';
 import { getProfileMe, CustomerProfile } from '@/core/api/profiles';
-import { getActiveBookings, confirmTechnician, Booking } from '@/core/api/bookings';
+import { getActiveBookings, confirmTechnician, cancelBooking, Booking } from '@/core/api/bookings';
 import { useAuthStore } from '@/data/store';
 
 const SERVICES = [
@@ -45,17 +46,21 @@ export default function CustomerDashboard() {
         setProfile(profData as CustomerProfile);
         setBookings(bookData);
       } catch (err: any) {
-        setError(err?.message || 'Failed to load dashboard data.');
+        // Silent error on polling
+        if (loading) setError(err?.message || 'Failed to load dashboard data.');
       } finally {
         setLoading(false);
       }
     };
+
     fetchData();
+    const interval = setInterval(fetchData, 10000); // Smart polling every 10s
+    return () => clearInterval(interval);
   }, []);
 
-  const handleConfirm = async (bookingId: string, technicianId: string) => {
+  const handleConfirm = async (bookingId: string) => {
     try {
-      await confirmTechnician(bookingId, technicianId);
+      await confirmTechnician(bookingId);
       const updatedBookings = await getActiveBookings('customer');
       setBookings(updatedBookings);
     } catch (err: any) {
@@ -63,9 +68,30 @@ export default function CustomerDashboard() {
     }
   };
 
+  const handleCancel = async (bookingId: string) => {
+    try {
+      await cancelBooking(bookingId, 'customer');
+      const updatedBookings = await getActiveBookings('customer');
+      setBookings(updatedBookings);
+    } catch (err: any) {
+      alert('Failed to cancel: ' + err.message);
+    }
+  };
+
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <RanzoAppBar title="Customer Dashboard" showBack={false} />
+      <RanzoAppBar 
+        title="Customer Dashboard" 
+        showBack={false} 
+        trailing={
+          <Pressable onPress={() => router.push('/profile-details?role=customer' as any)}>
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons name="person" size={20} color={Colors.inkMuted} />
+            </View>
+          </Pressable>
+        }
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -120,24 +146,44 @@ export default function CustomerDashboard() {
             ) : (
               bookings.map((b) => (
                 <View key={b.id} style={styles.infoCard}>
-                  <Text style={styles.infoLabel}>{b.category} - {b.status}</Text>
-                  <Text style={styles.infoValue}>{new Date(b.booking_datetime).toLocaleString()}</Text>
-                  {b.status === 'pending_selection' && b.accepted_technicians.length > 0 && (
+                  <Text style={styles.infoLabel}>{b.category}</Text>
+                  
+                  {/* Better status formatting */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>
+                     <Ionicons name="ellipse" size={10} color={['COMPLETED', 'CUSTOMER_CONFIRMED', 'IN_TRANSIT', 'IN_PROGRESS'].includes(b.status) ? Colors.success : Colors.warning} />
+                     <Text style={[styles.infoValue, {fontWeight: '700'}]}>{b.status.replace(/_/g, ' ')}</Text>
+                  </View>
+                  <Text style={styles.infoValue}>Booked: {new Date(b.created_at).toLocaleString()}</Text>
+
+                  {b.status === 'TECH_ACCEPTED' && (
                     <View style={{ marginTop: Spacing.sm, gap: Spacing.xs }}>
-                      <Text style={{ fontWeight: 'bold' }}>Select a Technician:</Text>
-                      {b.accepted_technicians.map((techId) => (
-                        <RanzoButton 
-                          key={techId} 
-                          label={`Accept Tech ID: ${techId.substring(0,6)}...`} 
-                          onPress={() => handleConfirm(b.id, techId)} 
-                        />
-                      ))}
+                      <Text style={{ fontWeight: 'bold' }}>A technician has accepted your request!</Text>
+                      <RanzoButton 
+                        label="Confirm Technician" 
+                        onPress={() => handleConfirm(b.id)} 
+                      />
                     </View>
                   )}
-                  {b.status === 'in_progress' && (
-                    <Text style={{ color: Colors.primary, marginTop: Spacing.sm }}>
-                      Technician {b.technician_id?.substring(0,6)} is assigned. Contact details available.
-                    </Text>
+                  
+                  {['CUSTOMER_CONFIRMED', 'IN_TRANSIT', 'IN_PROGRESS'].includes(b.status) && b.verification && (
+                    <View style={styles.otpBox}>
+                      <Text style={styles.otpTitle}>Share these OTPs with the technician</Text>
+                      {['CUSTOMER_CONFIRMED', 'IN_TRANSIT'].includes(b.status) && (
+                         <Text style={styles.otpText}>Start OTP: <Text style={{fontWeight: '900', color: Colors.primary}}>{b.verification.start_otp}</Text></Text>
+                      )}
+                      {b.status === 'IN_PROGRESS' && (
+                         <Text style={styles.otpText}>End OTP: <Text style={{fontWeight: '900', color: Colors.danger}}>{b.verification.end_otp}</Text></Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Cancel Button for active states */}
+                  {['CREATED', 'BROADCASTING', 'TECH_ACCEPTED', 'CUSTOMER_CONFIRMED', 'IN_TRANSIT'].includes(b.status) && (
+                    <View style={{ marginTop: Spacing.md }}>
+                      <Pressable onPress={() => handleCancel(b.id)} style={styles.cancelBtn}>
+                         <Text style={styles.cancelBtnText}>Cancel Booking</Text>
+                      </Pressable>
+                    </View>
                   )}
                 </View>
               ))
@@ -276,4 +322,45 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingHorizontal: Spacing.md,
   },
+  avatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surfaceCanvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpBox: {
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.primarySoft,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  otpTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.inkMuted,
+    marginBottom: Spacing.xs,
+  },
+  otpText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.inkNavy,
+  },
+  cancelBtn: {
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    backgroundColor: Colors.white,
+  },
+  cancelBtnText: {
+    color: Colors.danger,
+    fontWeight: 'bold',
+    fontSize: 14,
+  }
 });

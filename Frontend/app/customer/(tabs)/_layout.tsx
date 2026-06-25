@@ -12,7 +12,7 @@ export default function CustomerTabsLayout() {
       screenOptions={{
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.inkMuted,
-        headerShown: true,
+        headerShown: false,
         headerRight: () => (
           <Pressable onPress={() => router.push('/profile-setup?role=customer' as any)} style={{ marginRight: 15 }}>
             <Ionicons name="person-circle-outline" size={28} color={Colors.primary} />

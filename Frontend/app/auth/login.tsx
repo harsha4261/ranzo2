@@ -20,6 +20,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const targetRole = params.targetRole as string | undefined;
+  const returnUrl = params.returnUrl as string | undefined;
   const signIn = useAuthStore((s) => s.signIn);
   const setUser = useAuthStore((s) => s.setUser);
 
@@ -84,7 +85,9 @@ export default function LoginScreen() {
       const userSummary = await getUserMe();
       await setUser(userSummary);
       
-      if (targetRole) {
+      if (returnUrl) {
+        router.replace(returnUrl as any);
+      } else if (targetRole) {
         const isCompleted = userSummary?.registered_roles?.includes(targetRole);
         if (isCompleted) {
           if (targetRole === 'customer') {
@@ -208,7 +211,12 @@ export default function LoginScreen() {
           </View>
 
           <Pressable
-            onPress={() => router.push((targetRole ? `/auth/register?targetRole=${targetRole}` : '/auth/register') as any)}
+            onPress={() => {
+              const baseParams = targetRole ? `targetRole=${targetRole}` : '';
+              const retParams = returnUrl ? `returnUrl=${encodeURIComponent(returnUrl)}` : '';
+              const qString = [baseParams, retParams].filter(Boolean).join('&');
+              router.push((qString ? `/auth/register?${qString}` : '/auth/register') as any);
+            }}
             style={styles.registerLink}
           >
             <Text style={styles.registerText}>

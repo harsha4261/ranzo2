@@ -37,11 +37,22 @@ def _to_technician(doc: dict) -> TechnicianProfileResponse:
     coords = doc.get("location_coords")
     return TechnicianProfileResponse(
         id=doc["_id"], user_id=doc["user_id"],
+        name_as_per_adhar=doc.get("name_as_per_adhar"),
+        adhar_number=doc.get("adhar_number"),
+        adhar_image_url=doc.get("adhar_image_url"),
+        photo_url=doc.get("photo_url"),
+        village_city=doc.get("village_city"),
+        pin_code=doc.get("pin_code"),
+        district=doc.get("district"),
+        state=doc.get("state"),
+        preferred_distance=doc.get("preferred_distance"),
+        terms_agreed=doc.get("terms_agreed", False),
         skills=doc.get("skills", []), location=doc.get("location"),
         longitude=coords[0] if coords else None,
         latitude=coords[1] if coords else None,
         online_status=doc.get("online_status", False),
         is_completed=doc.get("is_completed", False),
+        is_approved=doc.get("is_approved", False),
     )
 
 def _to_seeker(doc: dict) -> SeekerProfileResponse:
@@ -124,17 +135,37 @@ async def update_my_profile(
         if role == UserRole.customer:
             validated = CustomerProfileUpdate.model_validate(body)
             update_data = validated.model_dump()
-            update_data["location_coords"] = [validated.longitude, validated.latitude]
+            if validated.longitude is not None and validated.latitude is not None:
+                update_data["location_coords"] = [validated.longitude, validated.latitude]
 
         elif role == UserRole.technician:
             validated = TechnicianProfileUpdate.model_validate(body)
-            # Store enum values as strings in MongoDB
-            update_data = {
-                "skills": [s.value for s in validated.skills],
-                "location": validated.location,
-                "location_coords": [validated.longitude, validated.latitude],
-                "online_status": validated.online_status,
-            }
+            update_data = validated.model_dump(exclude_unset=True)
+            if "skills" in update_data and update_data["skills"] is not None:
+                update_data["skills"] = [s.value for s in validated.skills]
+            
+            # Remove lat/long from root update_data as they go into location_coords
+            update_data.pop("longitude", None)
+            update_data.pop("latitude", None)
+            
+            from app.services.matchmaking import matchmaker
+            
+            if validated.longitude is not None and validated.latitude is not None:
+                update_data["location_coords"] = [validated.longitude, validated.latitude]
+                if validated.online_status is not False:
+                    # Sync to Redis for real-time matchmaking if they are online
+                    await matchmaker.update_technician_location(user_id, validated.longitude, validated.latitude)
+                
+            if validated.online_status is True:
+                current_profile = await get_profile(user_id, role, db)
+                if not current_profile or not current_profile.get("is_approved"):
+                    raise HTTPException(
+                        status.HTTP_403_FORBIDDEN, 
+                        "You must be approved by an admin before going online."
+                    )
+            elif validated.online_status is False:
+                # Remove from active Redis matchmaking pool
+                await matchmaker.remove_technician(user_id)
 
         elif role == UserRole.seeker:
             validated = SeekerProfileUpdate.model_validate(body)
@@ -142,13 +173,15 @@ async def update_my_profile(
                 "category": validated.category.value,
                 "role": validated.role,
                 "location": validated.location,
-                "location_coords": [validated.longitude, validated.latitude],
             }
+            if validated.longitude is not None and validated.latitude is not None:
+                update_data["location_coords"] = [validated.longitude, validated.latitude]
 
         elif role == UserRole.employer:
             validated = EmployerProfileUpdate.model_validate(body)
             update_data = validated.model_dump()
-            update_data["location_coords"] = [validated.longitude, validated.latitude]
+            if validated.longitude is not None and validated.latitude is not None:
+                update_data["location_coords"] = [validated.longitude, validated.latitude]
 
     except ValidationError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors())

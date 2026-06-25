@@ -5,6 +5,7 @@ import {
   View,
   ActivityIndicator,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -41,7 +42,18 @@ export default function SeekerDashboard() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <RanzoAppBar title="Job Seeker Dashboard" showBack onBack={() => router.replace('/home' as any)} />
+      <RanzoAppBar 
+        title="Job Seeker Dashboard" 
+        showBack 
+        onBack={() => router.replace('/home' as any)} 
+        trailing={
+          <Pressable onPress={() => router.push('/profile-details?role=seeker' as any)}>
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons name="person" size={20} color={Colors.inkMuted} />
+            </View>
+          </Pressable>
+        }
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -64,31 +76,7 @@ export default function SeekerDashboard() {
             </View>
           </View>
 
-          {/* Profile Preferences — from GET /profiles/me?role=seeker */}
-          <View style={styles.infoCard}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="card-outline" size={20} color={Colors.primary} />
-              <Text style={styles.cardTitle}>Your Job Preferences</Text>
-            </View>
-            <View style={styles.metaGrid}>
-              <View style={styles.metaRow}>
-                <Text style={styles.metaLabel}>Category</Text>
-                <Text style={styles.metaValue}>
-                  {profile?.category ? formatLabel(profile.category) : 'Not set'}
-                </Text>
-              </View>
-              <View style={styles.metaRow}>
-                <Text style={styles.metaLabel}>Target Role</Text>
-                <Text style={styles.metaValue}>
-                  {profile?.role ? formatLabel(profile.role) : 'Not set'}
-                </Text>
-              </View>
-              <View style={[styles.metaRow, { borderBottomWidth: 0 }]}>
-                <Text style={styles.metaLabel}>Preferred Location</Text>
-                <Text style={styles.metaValue}>{profile?.location || 'Not set'}</Text>
-              </View>
-            </View>
-          </View>
+
 
           {/* Job Feed — empty state (no job posting backend yet) */}
           <View style={styles.section}>
@@ -230,5 +218,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     paddingHorizontal: Spacing.md,
+  },
+  avatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surfaceCanvas,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

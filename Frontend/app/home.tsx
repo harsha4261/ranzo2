@@ -1,27 +1,15 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, Pressable, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, Elevation } from '@/core/theme';
 import { useAuthStore } from '@/data/store';
+import { RanzoButton } from '@/core/widgets';
 
 export default function HomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-
-  const handleRoleSelect = (role: 'customer' | 'technician' | 'seeker' | 'employer') => {
-    const isCompleted = user?.registered_roles?.includes(role);
-    if (isCompleted) {
-      if (role === 'customer') {
-        router.push('/customer/(tabs)' as any);
-      } else {
-        router.push(`/${role}/dashboard` as any);
-      }
-    } else {
-      router.push(`/profile-setup?role=${role}` as any);
-    }
-  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -44,73 +32,53 @@ export default function HomeScreen() {
 
         <View style={styles.cardsContainer}>
           {/* Card 1: Home Services */}
-          <View style={styles.productCard}>
-            <View style={styles.cardHeader}>
-              <View style={styles.cardIconWrap}>
-                <Ionicons name="construct-outline" size={28} color={Colors.primary} />
-              </View>
-              <View style={styles.cardTextWrap}>
-                <Text style={styles.cardTitle}>Home Services</Text>
-                <Text style={styles.cardDesc}>Register your skill, Book a technician</Text>
-              </View>
-            </View>
-
-            <View style={styles.expandedContent}>
-              <Text style={styles.expandedTitle}>Continue as:</Text>
-              <View style={styles.roleButtons}>
-                <Pressable style={styles.roleBtn} onPress={() => handleRoleSelect('customer')}>
-                  <Ionicons name="people-outline" size={20} color={Colors.white} />
-                  <Text style={styles.roleBtnText}>Customer</Text>
-                  {user?.registered_roles?.includes('customer') && (
-                    <Ionicons name="checkmark-circle" size={16} color={Colors.successSoft} />
-                  )}
-                </Pressable>
-
-                <Pressable style={styles.roleBtn} onPress={() => handleRoleSelect('technician')}>
-                  <Ionicons name="hammer-outline" size={20} color={Colors.white} />
-                  <Text style={styles.roleBtnText}>Technician</Text>
-                  {user?.registered_roles?.includes('technician') && (
-                    <Ionicons name="checkmark-circle" size={16} color={Colors.successSoft} />
-                  )}
-                </Pressable>
+          <TouchableOpacity onPress={() => router.push('/auth/home-services')}>
+            <View style={styles.productCard}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardIconWrap}>
+                  <Ionicons name="construct-outline" size={28} color={Colors.primary} />
+                </View>
+                <View style={styles.cardTextWrap}>
+                  <Text style={styles.cardTitle}>Home Services</Text>
+                  <Text style={styles.cardDesc}>Register your skill, Book a technician</Text>
+                </View>
               </View>
             </View>
-          </View>
+          </TouchableOpacity>
 
           {/* Card 2: Job Portal */}
-          <View style={styles.productCard}>
-            <View style={styles.cardHeader}>
-              <View style={styles.cardIconWrap}>
-                <Ionicons name="briefcase-outline" size={28} color={Colors.primary} />
-              </View>
-              <View style={styles.cardTextWrap}>
-                <Text style={styles.cardTitle}>Job Portal</Text>
-                <Text style={styles.cardDesc}>Find job opportunities or hire top talent</Text>
+          <TouchableOpacity onPress={() => router.push('/auth/jobs-portal')}>
+            <View style={styles.productCard}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardIconWrap}>
+                  <Ionicons name="briefcase-outline" size={28} color={Colors.primary} />
+                </View>
+                <View style={styles.cardTextWrap}>
+                  <Text style={styles.cardTitle}>Job Portal</Text>
+                  <Text style={styles.cardDesc}>Find job opportunities or hire top talent</Text>
+                </View>
               </View>
             </View>
+          </TouchableOpacity>
+        </View>
 
-            <View style={styles.expandedContent}>
-              <Text style={styles.expandedTitle}>Continue as:</Text>
-              <View style={styles.roleButtons}>
-                <Pressable style={styles.roleBtn} onPress={() => handleRoleSelect('seeker')}>
-                  <Ionicons name="search-outline" size={20} color={Colors.white} />
-                  <Text style={styles.roleBtnText}>Seeker</Text>
-                  {user?.registered_roles?.includes('seeker') && (
-                    <Ionicons name="checkmark-circle" size={16} color={Colors.successSoft} />
-                  )}
-                </Pressable>
-
-                <Pressable style={styles.roleBtn} onPress={() => handleRoleSelect('employer')}>
-                  <Ionicons name="business-outline" size={20} color={Colors.white} />
-                  <Text style={styles.roleBtnText}>Employer</Text>
-                  {user?.registered_roles?.includes('employer') && (
-                    <Ionicons name="checkmark-circle" size={16} color={Colors.successSoft} />
-                  )}
-                </Pressable>
-              </View>
+        {!user && (
+          <View style={styles.actionRow}>
+            <View style={styles.buttonWrapper}>
+              <RanzoButton
+                label="Register"
+                onPress={() => router.push({ pathname: '/auth/register', params: { returnUrl: '/home' } } as any)}
+              />
+            </View>
+            <View style={styles.buttonWrapper}>
+              <RanzoButton
+                label="Sign In"
+                variant="secondary"
+                onPress={() => router.push({ pathname: '/auth/login', params: { returnUrl: '/home' } } as any)}
+              />
             </View>
           </View>
-        </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -195,35 +163,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.inkMuted,
   },
-  expandedContent: {
-    backgroundColor: Colors.surfaceCanvas,
-    padding: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
-    gap: Spacing.md,
-  },
-  expandedTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.inkBody,
-  },
-  roleButtons: {
+  actionRow: {
     flexDirection: 'row',
     gap: Spacing.md,
+    marginTop: Spacing.xl,
+    marginBottom: Spacing.md,
   },
-  roleBtn: {
+  buttonWrapper: {
     flex: 1,
-    height: 48,
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-  },
-  roleBtnText: {
-    color: Colors.white,
-    fontWeight: '700',
-    fontSize: 14,
   },
 });

@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     MONGODB_URL: str = "mongodb://localhost:27017"
     DB_NAME: str = "ranzo"
+    REDIS_URL: str = "redis://localhost:6379"
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     # OTP lives 60 seconds before it expires

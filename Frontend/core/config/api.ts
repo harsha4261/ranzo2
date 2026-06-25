@@ -10,7 +10,7 @@ import Constants from 'expo-constants';
 //   EXPO_PUBLIC_API_BASE_URL=https://your-tunnel.devtunnels.ms
 // in a .env file at the project root before running `npx expo start`.
 // ─────────────────────────────────────────────────────────────────────────────
-const DEFAULT_API_BASE_URL = 'https://w5gkg0gj-8000.inc1.devtunnels.ms';
+const DEFAULT_API_BASE_URL = 'https://adventure-trucks-clinton-previously.trycloudflare.com';
 
 function normalizeBaseUrl(url: string | undefined | null): string {
   return (url?.trim() || '').replace(/\/+$/, '');

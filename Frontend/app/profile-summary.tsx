@@ -27,7 +27,11 @@ export default function ProfileSummaryScreen() {
   const handleRolePress = (role: 'customer' | 'technician' | 'seeker' | 'employer') => {
     const isCompleted = user?.registered_roles?.includes(role);
     if (isCompleted) {
-      router.push(`/${role}/dashboard` as any);
+      if (role === 'customer') {
+        router.push('/customer' as any);
+      } else {
+        router.push(`/${role}/dashboard` as any);
+      }
     } else {
       router.push(`/profile-setup?role=${role}` as any);
     }
@@ -37,7 +41,7 @@ export default function ProfileSummaryScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <RanzoAppBar title="Profile Summary" showBack onBack={() => router.back()} />
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        
+
         {/* User Card */}
         <View style={styles.userCard}>
           <View style={styles.avatarWrap}>
@@ -70,10 +74,10 @@ export default function ProfileSummaryScreen() {
                         role.value === 'customer'
                           ? 'people'
                           : role.value === 'technician'
-                          ? 'hammer'
-                          : role.value === 'seeker'
-                          ? 'search'
-                          : 'business'
+                            ? 'hammer'
+                            : role.value === 'seeker'
+                              ? 'search'
+                              : 'business'
                       }
                       size={22}
                       color={Colors.primary}
@@ -102,7 +106,7 @@ export default function ProfileSummaryScreen() {
             })}
           </View>
         </View>
-
+        
         {/* Logout Action */}
         <View style={styles.logoutWrap}>
           <RanzoButton

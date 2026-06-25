@@ -33,17 +33,20 @@ async def create_review(
     if not booking:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booking not found")
     
-    if booking["status"] != "completed":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Can only review completed bookings")
+    if booking["status"] not in ["PENDING_RATING", "COMPLETED"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Can only review jobs in PENDING_RATING or COMPLETED state")
 
     if role == "customer" and booking["customer_id"] != user_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your booking")
     
-    if role == "technician" and booking["technician_id"] != user_id:
+    if role == "technician" and booking.get("technician_id") != user_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your booking")
 
     # Check if a review already exists for this booking
     review_doc = await db.reviews.find_one({"booking_id": payload.booking_id})
+
+    is_customer_rating = False
+    is_technician_rating = False
 
     if review_doc:
         # Update existing review
@@ -51,13 +54,16 @@ async def create_review(
         if role == "customer":
             update_data["customer_rating"] = payload.rating
             update_data["customer_review"] = payload.review
+            is_customer_rating = True
+            is_technician_rating = review_doc.get("technician_rating") is not None
         else:
             update_data["technician_rating"] = payload.rating
             update_data["technician_review"] = payload.review
+            is_technician_rating = True
+            is_customer_rating = review_doc.get("customer_rating") is not None
             
         await db.reviews.update_one({"_id": review_doc["_id"]}, {"$set": update_data})
         doc = await db.reviews.find_one({"_id": review_doc["_id"]})
-        return _to_review_response(doc)
     else:
         # Create new review
         review = ReviewDocument(
@@ -69,12 +75,22 @@ async def create_review(
         if role == "customer":
             doc["customer_rating"] = payload.rating
             doc["customer_review"] = payload.review
+            is_customer_rating = True
         else:
             doc["technician_rating"] = payload.rating
             doc["technician_review"] = payload.review
+            is_technician_rating = True
             
         await db.reviews.insert_one(doc)
-        return _to_review_response(doc)
+
+    # Check if BOTH ratings are present and move booking to COMPLETED if so
+    if is_customer_rating and is_technician_rating and booking["status"] == "PENDING_RATING":
+        await db.bookings.update_one(
+            {"_id": booking["_id"]},
+            {"$set": {"status": "COMPLETED"}}
+        )
+
+    return _to_review_response(doc)
 
 @router.get("/{booking_id}", response_model=ReviewResponse)
 async def get_review(

@@ -9,4 +9,5 @@ class UserSummaryResponse(BaseModel):
     name: str
     phone: str
     registered_roles: List[str]
+    is_admin: bool = False
     created_at: datetime

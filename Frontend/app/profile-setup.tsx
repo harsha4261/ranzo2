@@ -12,10 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius } from '@/core/theme';
 import { RanzoAppBar, RanzoButton, RanzoTextField } from '@/core/widgets';
-import { updateProfileMe, UserRole } from '@/core/api/profiles';
+import { updateProfileMe, UserRole, uploadFile } from '@/core/api/profiles';
 import { getUserMe } from '@/core/api/users';
 import { useAuthStore } from '@/data/store';
 
@@ -125,6 +126,19 @@ export default function ProfileSetupScreen() {
   const [techSkills, setTechSkills] = useState<string[]>([]);
   const [onlineStatus, setOnlineStatus] = useState(false);
 
+  // Technician additional states
+  const [technicianStep, setTechnicianStep] = useState(1);
+  const [nameAsAdhar, setNameAsAdhar] = useState('');
+  const [adharNumber, setAdharNumber] = useState('');
+  const [adharImageUri, setAdharImageUri] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [villageCity, setVillageCity] = useState('');
+  const [pinCode, setPinCode] = useState('');
+  const [district, setDistrict] = useState('');
+  const [stateName, setStateName] = useState('');
+  const [preferredDistance, setPreferredDistance] = useState('');
+  const [termsAgreed, setTermsAgreed] = useState(false);
+
   const [seekerCategory, setSeekerCategory] = useState('');
   const [seekerRole, setSeekerRole] = useState('');
 
@@ -136,6 +150,45 @@ export default function ProfileSetupScreen() {
     // Reset Seeker role when category changes
     setSeekerRole('');
   }, [seekerCategory]);
+
+  useEffect(() => {
+    handleDetectLocation();
+    
+    // Pre-fill existing profile data
+    const fetchExistingProfile = async () => {
+      try {
+        const existing = await getProfileMe(roleParam);
+        if (!existing) return;
+        
+        if (existing.location) setLocation(existing.location);
+        if (existing.latitude) setLatitude(existing.latitude);
+        if (existing.longitude) setLongitude(existing.longitude);
+
+        if (roleParam === 'technician') {
+          const tech = existing as any;
+          if (tech.name_as_per_adhar) setNameAsAdhar(tech.name_as_per_adhar);
+          if (tech.skills) setTechSkills(tech.skills);
+          if (tech.adhar_number) setAdharNumber(tech.adhar_number);
+          if (tech.village_city) setVillageCity(tech.village_city);
+          if (tech.pin_code) setPinCode(tech.pin_code);
+          if (tech.district) setDistrict(tech.district);
+          if (tech.state) setStateName(tech.state);
+          if (tech.preferred_distance) setPreferredDistance(tech.preferred_distance.toString());
+          if (tech.terms_agreed) setTermsAgreed(tech.terms_agreed);
+        } else if (roleParam === 'employer') {
+          const emp = existing as any;
+          if (emp.company) setCompany(emp.company);
+        } else if (roleParam === 'seeker') {
+          const seek = existing as any;
+          if (seek.category) setSeekerCategory(seek.category);
+          if (seek.role) setSeekerRole(seek.role);
+        }
+      } catch (e) {
+        // Ignore if profile doesn't exist yet
+      }
+    };
+    fetchExistingProfile();
+  }, []);
 
   const handleDetectLocation = async () => {
     try {
@@ -182,6 +235,18 @@ export default function ProfileSetupScreen() {
     }
   };
 
+  const pickImage = async (setter: (uri: string) => void) => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setter(result.assets[0].uri);
+    }
+  };
+
   const handleSaveProfile = async () => {
     setError(null);
     setLoading(true);
@@ -201,22 +266,85 @@ export default function ProfileSetupScreen() {
         }
         body = { location: location.trim(), latitude, longitude };
       } else if (roleParam === 'technician') {
-        if (techSkills.length < 1 || techSkills.length > 3) {
-          setError('Please select between 1 and 3 skills.');
+        if (technicianStep === 1) {
+          if (!nameAsAdhar.trim()) {
+            setError('Please enter your name as per Adhar Card.');
+            setLoading(false);
+            return;
+          }
+          if (techSkills.length < 1 || techSkills.length > 3) {
+            setError('Please select between 1 and 3 skills.');
+            setLoading(false);
+            return;
+          }
+          setError(null);
           setLoading(false);
-          return;
+          setTechnicianStep(2);
+          return; // Stop here, go to step 2
+        } else {
+          // Step 2 validation
+          if (!adharNumber.trim()) {
+            setError('Please enter your Adhar Number.');
+            setLoading(false); return;
+          }
+          if (!adharImageUri && !body.adhar_image_url) {
+            // Note: We might be missing the uploaded image, but allow skip if backend already has it.
+            // Actually, for simplicity, require them to re-upload if it's their first time saving it properly.
+            if (!adharImageUri) {
+              setError('Please upload your Adhar Card.');
+              setLoading(false); return;
+            }
+          }
+          if (!photoUri) {
+            setError('Please upload your Photo.');
+            setLoading(false); return;
+          }
+          if (!villageCity.trim() || !pinCode.trim() || !district.trim() || !stateName.trim() || !preferredDistance.trim()) {
+            setError('Please fill all location fields.');
+            setLoading(false); return;
+          }
+          if (!termsAgreed) {
+            setError('You must agree to the terms and conditions.');
+            setLoading(false); return;
+          }
+
+          // Upload images
+          let uploadedAdharUrl = '';
+          let uploadedPhotoUrl = '';
+          try {
+            // Upload adhar
+            const ext1 = adharImageUri.split('.').pop() || 'jpg';
+            const res1 = await uploadFile(adharImageUri, `adhar.${ext1}`, `image/${ext1}`);
+            uploadedAdharUrl = res1.url;
+
+            // Upload photo
+            const ext2 = photoUri.split('.').pop() || 'jpg';
+            const res2 = await uploadFile(photoUri, `photo.${ext2}`, `image/${ext2}`);
+            uploadedPhotoUrl = res2.url;
+          } catch (e: any) {
+            setError('Image upload failed: ' + e.message);
+            setLoading(false);
+            return;
+          }
+
+          body = {
+            name_as_per_adhar: nameAsAdhar.trim(),
+            skills: techSkills,
+            adhar_number: adharNumber.trim(),
+            adhar_image_url: uploadedAdharUrl,
+            photo_url: uploadedPhotoUrl,
+            village_city: villageCity.trim(),
+            pin_code: pinCode.trim(),
+            district: district.trim(),
+            state: stateName.trim(),
+            preferred_distance: parseInt(preferredDistance, 10) || 0,
+            terms_agreed: termsAgreed,
+            online_status: false,
+            location: location.trim(),
+            latitude,
+            longitude,
+          };
         }
-        if (location.trim().length < 2 || location.trim().length > 100) {
-          setError('Location must be between 2 and 100 characters.');
-          setLoading(false);
-          return;
-        }
-        if (latitude === null || longitude === null) {
-          setError('Please detect your location.');
-          setLoading(false);
-          return;
-        }
-        body = { skills: techSkills, location: location.trim(), latitude, longitude, online_status: onlineStatus };
       } else if (roleParam === 'seeker') {
         if (!seekerCategory) {
           setError('Please select a job category.');
@@ -324,23 +452,16 @@ export default function ProfileSetupScreen() {
             )}
 
             {/* Technician Form */}
-            {roleParam === 'technician' && (
+            {roleParam === 'technician' && technicianStep === 1 && (
               <View style={styles.section}>
-                <View style={styles.locationRow}>
-                  <View style={styles.locationInputWrap}>
-                    <RanzoTextField
-                      label="Your Location"
-                      value={location}
-                      onChangeText={() => {}}
-                      placeholder="Tap detect button"
-                      editable={false}
-                    />
-                  </View>
-                  <Pressable style={styles.detectBtn} onPress={handleDetectLocation}>
-                    <Ionicons name="location" size={24} color={Colors.white} />
-                  </Pressable>
-                </View>
-                <Text style={styles.sectionTitle}>Select Your Skills (1 to 3)</Text>
+                <RanzoTextField
+                  label="Enter name (as per Adhar Card)*"
+                  value={nameAsAdhar}
+                  onChangeText={setNameAsAdhar}
+                  placeholder="John Doe"
+                />
+
+                <Text style={styles.sectionTitle}>Register your skill (Max. 3)</Text>
                 <View style={styles.skillsGrid}>
                   {TECHNICIAN_SKILLS.map((skill) => {
                     const isSelected = techSkills.includes(skill.value);
@@ -362,19 +483,66 @@ export default function ProfileSetupScreen() {
                     );
                   })}
                 </View>
+              </View>
+            )}
 
-                <View style={styles.toggleRow}>
-                  <View style={styles.toggleTextWrap}>
-                    <Text style={styles.toggleLabel}>Go Online Immediately</Text>
-                    <Text style={styles.toggleDesc}>Make yourself visible to customers for bookings</Text>
+            {roleParam === 'technician' && technicianStep === 2 && (
+              <View style={styles.section}>
+                <RanzoTextField
+                  label="Adhar Number*"
+                  value={adharNumber}
+                  onChangeText={setAdharNumber}
+                  keyboardType="numeric"
+                  placeholder="1234 5678 9012"
+                />
+
+                <View style={styles.uploadRow}>
+                  <Text style={styles.uploadLabel}>Upload Adhar*</Text>
+                  <View style={styles.uploadActions}>
+                    <RanzoButton label={adharImageUri ? "Selected" : "Browse"} variant="secondary" onPress={() => pickImage(setAdharImageUri)} />
                   </View>
-                  <Switch
-                    value={onlineStatus}
-                    onValueChange={setOnlineStatus}
-                    trackColor={{ false: Colors.divider, true: Colors.primaryTint }}
-                    thumbColor={onlineStatus ? Colors.primary : Colors.inkMuted}
-                  />
                 </View>
+
+                <View style={styles.uploadRow}>
+                  <Text style={styles.uploadLabel}>Upload Photo*</Text>
+                  <View style={styles.uploadActions}>
+                    <RanzoButton label={photoUri ? "Selected" : "Browse"} variant="secondary" onPress={() => pickImage(setPhotoUri)} />
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: Spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <RanzoTextField label="Village / City*" value={villageCity} onChangeText={setVillageCity} placeholder="Village/City" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <RanzoTextField label="PIN Code*" value={pinCode} onChangeText={setPinCode} keyboardType="numeric" placeholder="123456" />
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: Spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <RanzoTextField label="District*" value={district} onChangeText={setDistrict} placeholder="District" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <RanzoTextField label="State*" value={stateName} onChangeText={setStateName} placeholder="State" />
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: Spacing.md, alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <RanzoTextField label="Preferred Distance*" value={preferredDistance} onChangeText={setPreferredDistance} keyboardType="numeric" placeholder="10" />
+                  </View>
+                  <Text style={{ marginTop: 24, fontSize: 16, fontWeight: '700', color: Colors.inkBody }}>K.M</Text>
+                </View>
+
+                <Text style={{ fontSize: 13, color: Colors.inkMuted, marginTop: Spacing.sm }}>
+                  (You will get work notifications below above mentioned distance)
+                </Text>
+
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.md }} onPress={() => setTermsAgreed(!termsAgreed)}>
+                  <Ionicons name={termsAgreed ? 'checkbox' : 'square-outline'} size={24} color={Colors.primary} />
+                  <Text style={{ fontSize: 14, color: Colors.inkBody }}>I agree with terms & conditions of Ranzo</Text>
+                </Pressable>
               </View>
             )}
 
@@ -498,11 +666,28 @@ export default function ProfileSetupScreen() {
           </View>
 
           <View style={styles.actionWrap}>
-            <RanzoButton
-              label="Save & Complete Profile"
-              onPress={handleSaveProfile}
-              loading={loading}
-            />
+            {roleParam === 'technician' && technicianStep === 1 ? (
+              <View style={{ flexDirection: 'row', gap: Spacing.md }}>
+                <View style={{ flex: 1 }}>
+                  <RanzoButton label="Next" onPress={handleSaveProfile} loading={loading} />
+                </View>
+              </View>
+            ) : roleParam === 'technician' && technicianStep === 2 ? (
+              <View style={{ flexDirection: 'row', gap: Spacing.md }}>
+                <View style={{ flex: 1 }}>
+                  <RanzoButton label="Back" variant="secondary" onPress={() => setTechnicianStep(1)} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <RanzoButton label="Submit" onPress={handleSaveProfile} loading={loading} />
+                </View>
+              </View>
+            ) : (
+              <RanzoButton
+                label="Save & Complete Profile"
+                onPress={handleSaveProfile}
+                loading={loading}
+              />
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -668,5 +853,25 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  uploadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surfaceCanvas,
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.divider,
+  },
+  uploadLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.inkBody,
+    flex: 1,
+  },
+  uploadActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
   },
 });
