@@ -18,8 +18,8 @@ class CustomerProfileResponse(BaseModel):
 
 class CustomerProfileUpdate(BaseModel):
     location: str = Field(..., min_length=2, max_length=100)
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 # ──────────────────────────── Technician ────────────────────────────
@@ -82,8 +82,8 @@ class SeekerProfileUpdate(BaseModel):
     category: JobCategory
     role: str
     location: str = Field(..., min_length=2, max_length=100)
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     @model_validator(mode="after")
     def validate_role_matches_category(self) -> "SeekerProfileUpdate":
@@ -111,5 +111,5 @@ class EmployerProfileResponse(BaseModel):
 class EmployerProfileUpdate(BaseModel):
     company: str = Field(..., min_length=2, max_length=100)
     location: str = Field(..., min_length=2, max_length=100)
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None

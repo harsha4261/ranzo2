@@ -3,10 +3,31 @@ import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 
 import { RanzoAppBar, RanzoButton, RanzoTextField } from '@/core/widgets';
 import { Colors, Spacing, Radius } from '@/core/theme';
 import { Booking, acceptBooking, startJourney, startJob, completeJob, getBookingById } from '@/core/api/bookings';
+
+/**
+ * Gets the technician's current GPS position, requesting foreground location
+ * permission if needed. The backend geofences start/complete OTP submission
+ * to within 200m of the booking's service address, so we must have a real
+ * fix before calling those endpoints — never send null/fallback coordinates,
+ * the backend will just reject them with a 400 anyway.
+ */
+async function getCurrentCoords(): Promise<{ latitude: number; longitude: number }> {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    throw new Error('Location permission is required to start or complete this job on-site.');
+  }
+  try {
+    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+  } catch {
+    throw new Error('Could not get your current location. Enable GPS and try again.');
+  }
+}
 
 export default function BookingDetailsScreen() {
   const router = useRouter();
@@ -81,13 +102,15 @@ export default function BookingDetailsScreen() {
       }
       else if (action === 'start') {
         if (otp.length !== 4) throw new Error("Enter 4-digit Start OTP");
-        await startJob(b.id, otp);
+        const { latitude, longitude } = await getCurrentCoords();
+        await startJob(b.id, otp, latitude, longitude);
         setOtp('');
         await fetchLatest(b.id);
       }
       else if (action === 'complete') {
         if (otp.length !== 4) throw new Error("Enter 4-digit End OTP");
-        await completeJob(b.id, otp);
+        const { latitude, longitude } = await getCurrentCoords();
+        await completeJob(b.id, otp, latitude, longitude);
         setOtp('');
         await fetchLatest(b.id);
       }

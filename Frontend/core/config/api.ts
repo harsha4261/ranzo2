@@ -10,7 +10,7 @@ import Constants from 'expo-constants';
 //   EXPO_PUBLIC_API_BASE_URL=https://your-tunnel.devtunnels.ms
 // in a .env file at the project root before running `npx expo start`.
 // ─────────────────────────────────────────────────────────────────────────────
-const DEFAULT_API_BASE_URL = 'https://xqn9zhjk-8000.inc1.devtunnels.ms/';
+const DEFAULT_API_BASE_URL = 'https://manufactured-remove-cnet-hundreds.trycloudflare.com';
 
 function normalizeBaseUrl(url: string | undefined | null): string {
   return (url?.trim() || '').replace(/\/+$/, '');
@@ -21,7 +21,15 @@ function resolveApiBaseUrl(): string {
     Constants.expoConfig?.extra?.apiBaseUrl as string | undefined
   );
   const fromEnv = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
-  return fromExtra || fromEnv || DEFAULT_API_BASE_URL;
+  if (fromExtra) return fromExtra;
+  if (fromEnv) return fromEnv;
+  console.warn(
+    `[api] No EXPO_PUBLIC_API_BASE_URL configured — falling back to ${DEFAULT_API_BASE_URL}. ` +
+      'This only works for a local simulator/emulator talking to a backend on the same machine. ' +
+      'Set EXPO_PUBLIC_API_BASE_URL (in a .env file or app.config.ts extra.apiBaseUrl) to point at a ' +
+      'real device, tunnel, or production backend.'
+  );
+  return DEFAULT_API_BASE_URL;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

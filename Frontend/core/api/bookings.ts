@@ -109,19 +109,29 @@ export async function startJourney(bookingId: string): Promise<{ msg: string }> 
   });
 }
 
-export async function startJob(bookingId: string, otp: string): Promise<{ msg: string }> {
+export async function startJob(
+  bookingId: string,
+  otp: string,
+  latitude: number,
+  longitude: number
+): Promise<{ msg: string }> {
   return apiFetch<{ msg: string }>(apiV1Path(`/bookings/${bookingId}/start`), {
     method: 'POST',
     auth: true,
-    body: JSON.stringify({ status: 'IN_PROGRESS', otp }),
+    body: JSON.stringify({ status: 'IN_PROGRESS', otp, latitude, longitude }),
   });
 }
 
-export async function completeJob(bookingId: string, otp: string): Promise<{ msg: string }> {
+export async function completeJob(
+  bookingId: string,
+  otp: string,
+  latitude: number,
+  longitude: number
+): Promise<{ msg: string }> {
   return apiFetch<{ msg: string }>(apiV1Path(`/bookings/${bookingId}/complete`), {
     method: 'POST',
     auth: true,
-    body: JSON.stringify({ status: 'COMPLETED', otp }),
+    body: JSON.stringify({ status: 'COMPLETED', otp, latitude, longitude }),
   });
 }
 

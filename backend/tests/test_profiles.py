@@ -59,16 +59,43 @@ async def test_update_customer_profile(client, user_token):
 # ── Profiles: Technician ──────────────────────────────────────────
 
 async def test_update_technician_profile(client, user_token):
+    # Going online requires admin approval first — not part of what this test covers.
     r = await client.put(
         "/api/v1/profiles/me?role=technician",
         headers={"Authorization": f"Bearer {user_token}"},
-        json={"skills": ["plumber", "electrician"], "online_status": True},
+        json={"skills": ["plumber", "electrician"], "online_status": False},
     )
     assert r.status_code == 200
     data = r.json()
     assert data["skills"] == ["plumber", "electrician"]
-    assert data["online_status"] is True
+    assert data["online_status"] is False
     assert data["is_completed"] is True
+
+
+async def test_technician_cannot_go_online_before_approval(client, user_token):
+    r = await client.put(
+        "/api/v1/profiles/me?role=technician",
+        headers={"Authorization": f"Bearer {user_token}"},
+        json={"skills": ["plumber"], "online_status": True},
+    )
+    assert r.status_code == 403
+
+
+async def test_technician_can_go_online_after_approval(client, user_token, test_db):
+    await client.put(
+        "/api/v1/profiles/me?role=technician",
+        headers={"Authorization": f"Bearer {user_token}"},
+        json={"skills": ["plumber"], "online_status": False},
+    )
+    await test_db.technician_profiles.update_many({}, {"$set": {"is_approved": True}})
+
+    r = await client.put(
+        "/api/v1/profiles/me?role=technician",
+        headers={"Authorization": f"Bearer {user_token}"},
+        json={"online_status": True},
+    )
+    assert r.status_code == 200
+    assert r.json()["online_status"] is True
 
 async def test_update_technician_invalid_skill(client, user_token):
     r = await client.put(

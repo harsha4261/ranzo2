@@ -11,14 +11,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, Elevation } from '@/core/theme';
-import { RanzoAppBar } from '@/core/widgets';
+import { RanzoAppBar, RanzoButton } from '@/core/widgets';
 import { getProfileMe, EmployerProfile } from '@/core/api/profiles';
 import { useAuthStore } from '@/data/store';
+import { listMyJobs, Job } from '@/core/api/jobs';
 
 export default function EmployerDashboard() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const [profile, setProfile] = useState<EmployerProfile | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobsError, setJobsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +37,20 @@ export default function EmployerDashboard() {
       }
     };
     fetchProfile();
+
+    const fetchJobs = async () => {
+      try {
+        const res = await listMyJobs({ limit: 20 });
+        setJobs(res.items);
+      } catch (err: any) {
+        setJobsError(err?.message || 'Failed to load your jobs.');
+      }
+    };
+    fetchJobs();
   }, []);
+
+  const publishedCount = jobs.filter((j) => j.status === 'PUBLISHED').length;
+  const pendingCount = jobs.filter((j) => j.status === 'PUBLISHED' && j.moderation_status === 'PENDING').length;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -74,26 +90,46 @@ export default function EmployerDashboard() {
 
 
 
-          {/* Job Postings — empty state (no job posting backend yet) */}
+          {/* Job Postings — real data from GET /jobs/mine */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Your Job Postings</Text>
-            <View style={styles.emptyState}>
-              <Ionicons name="megaphone-outline" size={44} color={Colors.inkMuted} />
-              <Text style={styles.emptyTitle}>No active job postings</Text>
-              <Text style={styles.emptyDesc}>
-                Job posting functionality will be available soon. You'll be able to post jobs and review applicants right here.
-              </Text>
+            {jobsError ? (
+              <Text style={{ color: Colors.danger }}>{jobsError}</Text>
+            ) : jobs.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="megaphone-outline" size={44} color={Colors.inkMuted} />
+                <Text style={styles.emptyTitle}>No active job postings</Text>
+                <Text style={styles.emptyDesc}>
+                  Post your first job to start receiving applications from job seekers.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.jobSummaryCard}>
+                <Text style={styles.jobSummaryLine}>{jobs.length} total · {publishedCount} published</Text>
+                {pendingCount > 0 && (
+                  <Text style={styles.jobSummaryPending}>{pendingCount} awaiting admin review</Text>
+                )}
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.md }}>
+              <RanzoButton label="Post a Job" onPress={() => router.push('/employer/post-job' as any)} style={{ flex: 1 }} />
+              <RanzoButton
+                label="My Jobs"
+                variant="secondary"
+                onPress={() => router.push('/employer/my-jobs' as any)}
+                style={{ flex: 1 }}
+              />
             </View>
           </View>
 
-          {/* Applicants — empty state */}
+          {/* Applicants — management UI not built yet; deferred follow-up */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Applicants</Text>
             <View style={styles.emptyState}>
               <Ionicons name="people-outline" size={40} color={Colors.inkMuted} />
-              <Text style={styles.emptyTitle}>No applicants yet</Text>
+              <Text style={styles.emptyTitle}>Applicant review coming soon</Text>
               <Text style={styles.emptyDesc}>
-                Post a job to start receiving applications from job seekers in your area.
+                Reviewing and shortlisting applicants isn't available in this build yet.
               </Text>
             </View>
           </View>
@@ -221,4 +257,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  jobSummaryCard: {
+    backgroundColor: Colors.surfaceCanvas,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.divider,
+    gap: 4,
+  },
+  jobSummaryLine: { fontSize: 15, fontWeight: '700', color: Colors.inkNavy },
+  jobSummaryPending: { fontSize: 13, color: Colors.warning, fontWeight: '600' },
 });

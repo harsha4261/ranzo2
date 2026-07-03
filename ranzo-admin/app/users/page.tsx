@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from '@/components/AdminNav';
+import { LoadingBanner, ErrorBanner } from '@/components/StatusBanner';
 import { AdminUser, fetchUsers, getToken, suspendUser } from '@/lib/api';
 
 export default function UsersPage() {
@@ -12,20 +13,29 @@ export default function UsersPage() {
   const [q, setQ] = useState('');
   const [role, setRole] = useState('');
   const [suspendedOnly, setSuspendedOnly] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     const token = getToken();
     if (!token) {
       router.replace('/');
       return;
     }
-    fetchUsers(token, app, {
-      q: q || undefined,
-      role: role || undefined,
-      suspended: suspendedOnly ? true : undefined,
-    })
-      .then((r) => setItems(r.items ?? []))
-      .catch(() => router.replace('/'));
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetchUsers(token, app, {
+        q: q || undefined,
+        role: role || undefined,
+        suspended: suspendedOnly ? true : undefined,
+      });
+      setItems(r.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load users');
+    } finally {
+      setLoading(false);
+    }
   }, [router, app, q, role, suspendedOnly]);
 
   useEffect(() => {
@@ -37,8 +47,12 @@ export default function UsersPage() {
     if (!token) return;
     const next = !u.is_suspended;
     const reason = next ? prompt('Suspend reason (optional)') ?? undefined : undefined;
-    await suspendUser(token, u.id, { suspended: next, reason }, app);
-    load();
+    try {
+      await suspendUser(token, u.id, { suspended: next, reason }, app);
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update user');
+    }
   };
 
   return (
@@ -69,6 +83,10 @@ export default function UsersPage() {
           Search
         </button>
       </div>
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      {loading && <LoadingBanner />}
+
       <table style={{ width: '100%', background: '#fff', borderRadius: 12, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -93,7 +111,7 @@ export default function UsersPage() {
               </td>
             </tr>
           ))}
-          {!items.length && (
+          {!loading && !items.length && (
             <tr>
               <td colSpan={5} style={td}>
                 No users found.

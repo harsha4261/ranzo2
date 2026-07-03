@@ -1,79 +1,77 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from '@/components/AdminNav';
-import { fetchWalkInDrives, getToken } from '@/lib/api';
-
-type Drive = {
-  id: string;
-  job_title?: string;
-  employer_name?: string;
-  venue_name?: string;
-  address?: string;
-  drive_date?: string;
-  total_capacity?: number;
-  total_booked?: number;
-  total_attended?: number;
-  booking_count?: number;
-  status?: string;
-  created_at?: string;
-};
+import { LoadingBanner, ErrorBanner } from '@/components/StatusBanner';
+import { WalkInDrive, fetchWalkInDrives, getToken } from '@/lib/api';
 
 export default function WalkInPage() {
   const router = useRouter();
-  const [items, setItems] = useState<Drive[]>([]);
-  const [status, setStatus] = useState('');
+  const [items, setItems] = useState<WalkInDrive[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const token = getToken();
     if (!token) {
       router.replace('/');
       return;
     }
-    fetchWalkInDrives(token, status || undefined)
-      .then((r) => setItems(r.items ?? []))
-      .catch(() => router.replace('/'));
-  }, [router, status]);
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetchWalkInDrives(token);
+      setItems(r.items ?? []);
+      setTotal(r.total ?? 0);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load walk-in drives');
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <main style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
       <h1 style={{ color: '#6B2C8C', margin: '0 0 16px' }}>Walk-in drives</h1>
       <AdminNav />
-      <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ marginBottom: 16 }}>
-        <option value="">All statuses</option>
-        <option value="scheduled">scheduled</option>
-        <option value="active">active</option>
-        <option value="completed">completed</option>
-        <option value="cancelled">cancelled</option>
-      </select>
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      {loading && <LoadingBanner />}
+      {!loading && !error && (
+        <p style={{ color: '#7A7E96', fontSize: 13, marginTop: -8, marginBottom: 12 }}>{total} total</p>
+      )}
+
       <table style={{ width: '100%', background: '#fff', borderRadius: 12, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             <th style={th}>Job</th>
             <th style={th}>Employer</th>
-            <th style={th}>Venue</th>
+            <th style={th}>Address</th>
             <th style={th}>Date</th>
-            <th style={th}>Capacity</th>
-            <th style={th}>Booked</th>
-            <th style={th}>Status</th>
+            <th style={th}>Slots</th>
+            <th style={th}>Capacity/slot</th>
+            <th style={th}>Checked in</th>
           </tr>
         </thead>
         <tbody>
           {items.map((d) => (
-            <tr key={d.id}>
-              <td style={td}>{d.job_title ?? d.id.slice(0, 8)}</td>
-              <td style={td}>{d.employer_name ?? '—'}</td>
-              <td style={td}>{d.venue_name ?? d.address ?? '—'}</td>
+            <tr key={d._id}>
+              <td style={td}>{d.job_id.slice(0, 10)}</td>
+              <td style={td}>{d.employer_id.slice(0, 10)}</td>
+              <td style={td}>{d.address}</td>
               <td style={td}>{d.drive_date ? new Date(d.drive_date).toLocaleDateString() : '—'}</td>
-              <td style={td}>
-                {d.total_booked ?? 0}/{d.total_capacity ?? 0}
-              </td>
-              <td style={td}>{d.booking_count ?? 0}</td>
-              <td style={td}>{d.status}</td>
+              <td style={td}>{d.time_slots?.join(', ') || '—'}</td>
+              <td style={td}>{d.capacity_per_slot}</td>
+              <td style={td}>{d.checked_in_count ?? 0}</td>
             </tr>
           ))}
-          {!items.length && (
+          {!loading && !items.length && (
             <tr>
               <td colSpan={7} style={td}>
                 No walk-in drives.

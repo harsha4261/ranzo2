@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from '@/components/AdminNav';
-import { fetchDashboard, fetchUsers } from '@/lib/api';
+import { LoadingBanner, ErrorBanner } from '@/components/StatusBanner';
+import { fetchDashboard, fetchUsers, getToken, AdminUser } from '@/lib/api';
 
 type Dash = {
   job_portal: Record<string, number>;
@@ -13,43 +14,47 @@ type Dash = {
 export default function DashboardPage() {
   const router = useRouter();
   const [dash, setDash] = useState<Dash | null>(null);
-  const [users, setUsers] = useState<{ name?: string; phone_number?: string; role?: string }[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [app, setApp] = useState('home-services');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const token = sessionStorage.getItem('ranzo_admin_token');
+  const load = useCallback(async () => {
+    const token = getToken();
     if (!token) {
       router.replace('/');
       return;
     }
-    Promise.all([fetchDashboard(token), fetchUsers(token, app)])
-      .then(([d, u]) => {
-        setDash(d as Dash);
-        setUsers(u.items ?? []);
-      })
-      .catch(() => router.replace('/'));
+    setLoading(true);
+    setError(null);
+    try {
+      const [d, u] = await Promise.all([fetchDashboard(token), fetchUsers(token, app)]);
+      setDash(d);
+      setUsers(u.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+    }
   }, [router, app]);
 
-  const logout = () => {
-    sessionStorage.removeItem('ranzo_admin_token');
-    router.replace('/');
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <main style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1 style={{ color: '#6B2C8C', margin: 0 }}>Dashboard</h1>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <select value={app} onChange={(e) => setApp(e.target.value)}>
-            <option value="home-services">Home Services</option>
-            <option value="job-portal">Job Portal</option>
-          </select>
-          <button type="button" onClick={logout} style={btnGhost}>
-            Sign out
-          </button>
-        </div>
+        <select value={app} onChange={(e) => setApp(e.target.value)}>
+          <option value="home-services">Home Services</option>
+          <option value="job-portal">Job Portal</option>
+        </select>
       </header>
       <AdminNav />
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      {loading && <LoadingBanner />}
 
       {dash && (
         <section style={grid}>
@@ -68,14 +73,14 @@ export default function DashboardPage() {
           </tr>
         </thead>
         <tbody>
-          {users.map((u, i) => (
-            <tr key={i}>
+          {users.map((u) => (
+            <tr key={u.id}>
               <td style={td}>{u.name ?? '—'}</td>
               <td style={td}>{u.phone_number}</td>
               <td style={td}>{u.role}</td>
             </tr>
           ))}
-          {!users.length && (
+          {!loading && !users.length && (
             <tr>
               <td colSpan={3} style={td}>
                 No users yet.
@@ -123,11 +128,3 @@ const th: React.CSSProperties = {
 };
 
 const td: React.CSSProperties = { padding: '12px 16px', borderBottom: '1px solid #F5F0F8' };
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 12px',
-  borderRadius: 8,
-  border: '1px solid #ECE6F0',
-  background: '#fff',
-  cursor: 'pointer',
-};

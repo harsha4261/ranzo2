@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { adminLogin } from '@/lib/api';
+import { adminLogin, setToken } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,7 +17,7 @@ export default function LoginPage() {
     setError(null);
     try {
       const { access_token } = await adminLogin(username, password);
-      sessionStorage.setItem('ranzo_admin_token', access_token);
+      setToken(access_token);
       router.push('/dashboard');
     } catch {
       setError('Invalid credentials or API unreachable.');

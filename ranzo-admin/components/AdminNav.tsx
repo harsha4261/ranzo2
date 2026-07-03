@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { clearToken } from '@/lib/api';
 
 const links = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -22,6 +23,13 @@ const links = [
 
 export function AdminNav() {
   const path = usePathname();
+  const router = useRouter();
+
+  const logout = () => {
+    clearToken();
+    router.replace('/');
+  };
+
   return (
     <nav
       style={{
@@ -31,6 +39,7 @@ export function AdminNav() {
         marginBottom: 24,
         paddingBottom: 16,
         borderBottom: '1px solid #ECE6F0',
+        alignItems: 'center',
       }}
     >
       {links.map((l) => (
@@ -50,6 +59,23 @@ export function AdminNav() {
           {l.label}
         </Link>
       ))}
+      <button
+        type="button"
+        onClick={logout}
+        style={{
+          marginLeft: 'auto',
+          padding: '8px 12px',
+          borderRadius: 8,
+          border: '1px solid #ECE6F0',
+          background: '#fff',
+          color: '#6B2C8C',
+          fontSize: 14,
+          fontWeight: 500,
+          cursor: 'pointer',
+        }}
+      >
+        Sign out
+      </button>
     </nav>
   );
 }

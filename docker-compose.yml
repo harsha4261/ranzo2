@@ -1,0 +1,54 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+      - redis
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      DB_NAME: ranzo
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set a real JWT_SECRET in .env}
+      JWT_ALGORITHM: HS256
+      OTP_TTL_SECONDS: 60
+      OTP_VERIFICATION_WINDOW_SECONDS: 300
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3001}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+    volumes:
+      - backend_uploads:/app/uploads
+    ports:
+      - "8000:8000"
+
+  admin:
+    build:
+      context: ./ranzo-admin
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${ADMIN_API_BASE_URL:-http://localhost:8000/api/v1}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3001:3001"
+
+volumes:
+  mongo_data:
+  redis_data:
+  backend_uploads:

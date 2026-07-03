@@ -25,6 +25,25 @@ def mongo_container():
 # Per-test DB fixture — fresh Motor client, cleaned up after each test
 # ──────────────────────────────────────────────────────────────────
 
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_redis_pool():
+    """
+    app.core.redis.redis_client is a module-level singleton connection pool,
+    fine for production (one process, one long-lived event loop) but broken
+    across pytest-asyncio's function-scoped event loops — a pooled connection
+    opened on one test's loop errors ("attached to a different loop") if reused
+    on the next test's loop. Close it after every test so it lazily reconnects
+    on whatever loop is current next time it's used.
+    """
+    yield
+    from app.core.redis import redis_client
+
+    try:
+        await redis_client.aclose()
+    except Exception:
+        pass
+
+
 @pytest_asyncio.fixture
 async def test_db(mongo_container):
     client = AsyncIOMotorClient(mongo_container.get_connection_url())
@@ -38,9 +57,12 @@ async def test_db(mongo_container):
 
     # Clean all collections after each test
     for col in [
-        "users", "otps",
+        "users", "otps", "revoked_tokens",
         "customer_profiles", "technician_profiles",
         "seeker_profiles", "employer_profiles",
+        "bookings", "technician_wallets", "wallet_transactions", "wallet_recharge_orders",
+        "reviews", "jobs", "job_applications", "walk_in_drives",
+        "audit_logs", "app_config",
     ]:
         await db[col].delete_many({})
 

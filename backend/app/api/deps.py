@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token_payload
 from app.services.user_service import get_user_by_id
 
 # auto_error=False lets us return 401 (not 403) for missing tokens
@@ -17,13 +17,13 @@ def get_db(request: Request) -> AsyncIOMotorDatabase:
     return request.app.state.db
 
 
-async def get_current_user_id(
+async def get_current_token_payload(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: AsyncIOMotorDatabase = Depends(get_db),
-) -> str:
+) -> dict:
     """
-    Dependency: decode Bearer JWT and return the user_id.
-    Raises HTTP 401 if token is missing, malformed, or user no longer exists.
+    Dependency: decode Bearer JWT, reject if revoked (logged out) or the
+    user no longer exists, and return the full payload (sub + jti).
     """
     if credentials is None:
         raise HTTPException(
@@ -32,7 +32,7 @@ async def get_current_user_id(
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        user_id = decode_access_token(credentials.credentials)
+        payload = decode_access_token_payload(credentials.credentials)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -40,11 +40,25 @@ async def get_current_user_id(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Guard: ensure user still exists in DB
+    jti = payload.get("jti")
+    if jti and await db.revoked_tokens.find_one({"_id": jti}):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please log in again.",
+        )
+
+    user_id = payload["sub"]
     user = await get_user_by_id(user_id, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
-    return user_id
+    return payload
+
+
+async def get_current_user_id(
+    payload: dict = Depends(get_current_token_payload),
+) -> str:
+    """Dependency: decode Bearer JWT and return just the user_id."""
+    return payload["sub"]

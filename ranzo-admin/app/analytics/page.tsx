@@ -1,80 +1,116 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from '@/components/AdminNav';
-import { fetchAnalytics, getToken } from '@/lib/api';
+import { LoadingBanner, ErrorBanner } from '@/components/StatusBanner';
+import { Analytics, fetchAnalytics, getToken } from '@/lib/api';
 
 export default function AnalyticsPage() {
   const router = useRouter();
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [data, setData] = useState<Analytics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const token = getToken();
     if (!token) {
       router.replace('/');
       return;
     }
-    fetchAnalytics(token).then(setData).catch(() => router.replace('/'));
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await fetchAnalytics(token));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load analytics');
+    } finally {
+      setLoading(false);
+    }
   }, [router]);
 
-  const beta = (data?.beta_progress ?? {}) as Record<
-    string,
-    { current: number; target: number; percent: number }
-  >;
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <main style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
-      <h1 style={{ color: '#6B2C8C' }}>Analytics & beta progress</h1>
+      <h1 style={{ color: '#6B2C8C' }}>Analytics</h1>
       <AdminNav />
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      {loading && <LoadingBanner />}
+
       {data && (
         <>
-          <pre
-            style={{
-              background: '#fff',
-              padding: 16,
-              borderRadius: 12,
-              overflow: 'auto',
-              fontSize: 13,
-            }}
-          >
-            {JSON.stringify(
-              { job_portal: data.job_portal, home_services: data.home_services },
-              null,
-              2
-            )}
-          </pre>
-          <h2>Beta targets (Hyderabad)</h2>
-          <div style={{ display: 'grid', gap: 12 }}>
-            {Object.entries(beta).map(([key, v]) => (
-              <div key={key} style={barWrap}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{key}</span>
-                  <span>
-                    {v.current} / {v.target} ({v.percent}%)
-                  </span>
-                </div>
-                <div style={barBg}>
-                  <div style={{ ...barFill, width: `${v.percent}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
+          <section style={grid}>
+            <StatCard label="Users" value={data.total_users} />
+            <StatCard label="Technicians" value={data.total_technicians} />
+            <StatCard label="Technicians online" value={data.technicians_online} />
+            <StatCard label="Bookings" value={data.total_bookings} />
+            <StatCard label="Revenue" value={`₹${data.total_revenue.toLocaleString('en-IN')}`} />
+            <StatCard label="Jobs" value={data.total_jobs} />
+            <StatCard label="Job applications" value={data.total_applications} />
+          </section>
+
+          <h2 style={{ marginTop: 32 }}>Bookings by status</h2>
+          <table style={{ width: '100%', background: '#fff', borderRadius: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={th}>Status</th>
+                <th style={th}>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(data.bookings_by_status).map(([status, count]) => (
+                <tr key={status}>
+                  <td style={td}>{status}</td>
+                  <td style={td}>{count}</td>
+                </tr>
+              ))}
+              {!Object.keys(data.bookings_by_status).length && (
+                <tr>
+                  <td colSpan={2} style={td}>
+                    No bookings yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </>
       )}
     </main>
   );
 }
 
-const barWrap: React.CSSProperties = { marginBottom: 8 };
-const barBg: React.CSSProperties = {
-  height: 8,
-  background: '#ECE6F0',
-  borderRadius: 4,
-  marginTop: 6,
+function StatCard({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div style={card}>
+      <div style={{ fontSize: 13, color: '#7A7E96' }}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: '#6B2C8C' }}>{value}</div>
+    </div>
+  );
+}
+
+const grid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 16,
+  marginBottom: 16,
 };
-const barFill: React.CSSProperties = {
-  height: 8,
-  background: '#6B2C8C',
-  borderRadius: 4,
+
+const card: React.CSSProperties = {
+  background: '#fff',
+  padding: 16,
+  borderRadius: 12,
+  boxShadow: '0 4px 16px rgba(107,44,140,0.08)',
 };
+
+const th: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '12px 16px',
+  borderBottom: '1px solid #ECE6F0',
+  fontSize: 13,
+  color: '#7A7E96',
+};
+const td: React.CSSProperties = { padding: '12px 16px', borderBottom: '1px solid #F5F0F8' };

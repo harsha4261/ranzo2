@@ -31,30 +31,33 @@ class MatchmakingService:
 
     async def _radius_expansion_worker(self, booking_doc: dict, db: AsyncIOMotorDatabase):
         """
-        Starts at 3km, expands to 5km, then 10km every 60 seconds if not accepted.
+        Starts at 3km, expands to 5km, then 15km, waiting 45s between each stage for
+        an acceptance. If nobody accepts by the end of the last stage, the booking
+        expires and the customer is notified.
         """
-        radiuses = [10]  # Start at 10km
+        radiuses = [3, 5, 15]
         booking_id = booking_doc["_id"]
         category = booking_doc["category"]
+        customer_id = booking_doc["customer_id"]
         longitude = booking_doc["location"]["coordinates"][0]
         latitude = booking_doc["location"]["coordinates"][1]
 
         for radius in radiuses:
-            # 1. Check if booking is still BROADCASTING before expanding
-            # In a full system, you would check the actual Mongo DB to see if it was accepted
-            # But for simplicity in this service, we just proceed (the endpoint rejects late accepts anyway).
-            
-            # 2. Query Redis Geo for nearby technicians
+            # Stop expanding if the booking was already accepted (or cancelled) elsewhere.
+            current = await db.bookings.find_one({"_id": booking_id}, {"status": 1})
+            if not current or current.get("status") != "BROADCASTING":
+                return
+
             # GEORADIUS key longitude latitude radius m|km|ft|mi
             nearby_techs = await redis_client.georadius(
-                self.GEO_KEY, 
-                longitude, 
-                latitude, 
-                radius, 
+                self.GEO_KEY,
+                longitude,
+                latitude,
+                radius,
                 unit="km"
             )
             print(f"[MATCHMAKER] GEORADIUS at {longitude}, {latitude} radius {radius}km returned: {nearby_techs}")
-            
+
             if nearby_techs:
                 # Filter technicians by skill (case insensitive to match database format)
                 valid_techs_cursor = db.technician_profiles.find({
@@ -65,7 +68,6 @@ class MatchmakingService:
                 valid_tech_ids = [doc["user_id"] for doc in valid_tech_docs]
 
                 if valid_tech_ids:
-                    # 3. Notify them via WebSockets
                     payload = jsonable_encoder(_to_booking_response(booking_doc, ""))
                     payload["radius_tried"] = radius
                     print(f"[MATCHMAKER] Notifying techs: {valid_tech_ids}")
@@ -75,7 +77,17 @@ class MatchmakingService:
             else:
                 print(f"[MATCHMAKER] No technicians found within {radius}km!")
 
-            # Wait 45 seconds before expanding the radius
             await asyncio.sleep(45)
+
+        # Max radius exhausted with no acceptance — expire the booking.
+        expired = await db.bookings.find_one_and_update(
+            {"_id": booking_id, "status": "BROADCASTING"},
+            {"$set": {"status": "EXPIRED"}},
+            return_document=True,
+        )
+        if expired:
+            print(f"[MATCHMAKER] Booking {booking_id} EXPIRED after exhausting all radiuses")
+            payload = jsonable_encoder(_to_booking_response(expired, customer_id))
+            await ws_manager.notify_users([customer_id], "booking_updated", payload)
 
 matchmaker = MatchmakingService()

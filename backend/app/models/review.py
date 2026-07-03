@@ -16,6 +16,9 @@ class ReviewDocument(BaseModel):
     technician_rating: Optional[int] = None
     customer_review: Optional[str] = None
     technician_review: Optional[str] = None
+    dispute_raised: bool = False
+    dispute_reason: Optional[str] = None
+    dispute_status: Optional[str] = None  # OPEN, RESOLVED, REFUNDED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"populate_by_name": True}

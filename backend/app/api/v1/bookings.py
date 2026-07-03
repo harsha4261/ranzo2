@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -9,6 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 
 from app.api.deps import get_current_user_id, get_db
+from app.core.geo import distance_meters
 from app.models.booking import BookingDocument, Location, AddressDetails, Timeline, Verification
 from app.schemas.booking import BookingCreate, BookingResponse, BookingStateUpdate, TimelineResponse, VerificationResponse
 from app.services.ws_manager import ws_manager
@@ -16,17 +18,26 @@ from app.services.sse_manager import manager as sse_manager
 
 router = APIRouter()
 
+ESCROW_HOLD_AMOUNT = 50
+GEOFENCE_RADIUS_METERS = 200
+
 @router.websocket("/ws")
 async def websocket_bookings(websocket: WebSocket, token: str):
     # Manual token decoding since Depends(get_current_user_id) won't work perfectly over WS
-    from app.core.security import decode_access_token
+    from app.core.security import decode_access_token_payload
     try:
-        user_id = decode_access_token(token)
+        payload = decode_access_token_payload(token)
+        user_id = payload["sub"]
     except Exception:
         await websocket.close(code=1008)
         return
-        
+
     if not user_id:
+        await websocket.close(code=1008)
+        return
+
+    jti = payload.get("jti")
+    if jti and await websocket.app.state.db.revoked_tokens.find_one({"_id": jti}):
         await websocket.close(code=1008)
         return
 
@@ -69,6 +80,20 @@ def _to_booking_response(doc: dict, current_user_id: str = None) -> BookingRespo
         created_at=doc.get("created_at", datetime.now(timezone.utc)),
         updated_at=doc.get("updated_at", datetime.now(timezone.utc))
     )
+
+def _assert_within_geofence(doc: dict, latitude: Optional[float], longitude: Optional[float]) -> None:
+    """Fraud-prevention check: technician must be physically at the job site to submit an OTP."""
+    if latitude is None or longitude is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current location (latitude/longitude) is required")
+
+    booking_lon, booking_lat = doc["location"]["coordinates"][0], doc["location"]["coordinates"][1]
+    distance = distance_meters(latitude, longitude, booking_lat, booking_lon)
+    if distance > GEOFENCE_RADIUS_METERS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"You must be within {GEOFENCE_RADIUS_METERS}m of the service location to do this (currently ~{int(distance)}m away)",
+        )
+
 
 @router.post("/", response_model=BookingResponse)
 async def create_booking(
@@ -114,15 +139,10 @@ async def accept_booking(
     user_id: str = Depends(get_current_user_id),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    # Pre-condition: Check Wallet Escrow >= 50
-    wallet = await db.technician_wallets.find_one({"_id": user_id})
-    if not wallet or wallet.get("balance", 0) < 50:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient wallet balance (Min 50 Rs required)")
-
     doc = await db.bookings.find_one({"_id": booking_id})
     if not doc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booking not found")
-    
+
     if doc["status"] != "BROADCASTING":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Booking is no longer broadcasting")
 
@@ -138,9 +158,39 @@ async def accept_booking(
         },
         return_document=True
     )
-    
+
     if not updated:
         raise HTTPException(status.HTTP_409_CONFLICT, "Another technician already accepted this booking")
+
+    # Escrow hold: atomically debit the platform fee now (not at completion) so a
+    # technician can never accept more concurrent jobs than their balance covers.
+    # The $gte guard makes this atomic — no separate balance-check race.
+    wallet = await db.technician_wallets.find_one_and_update(
+        {"_id": user_id, "balance": {"$gte": ESCROW_HOLD_AMOUNT}},
+        {"$inc": {"balance": -ESCROW_HOLD_AMOUNT}},
+        return_document=True,
+    )
+    if not wallet:
+        # Insufficient balance — release the booking back to BROADCASTING for other techs.
+        await db.bookings.update_one(
+            {"_id": booking_id},
+            {"$set": {"status": "BROADCASTING", "technician_id": None, "timeline.accepted_at": None}},
+        )
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient wallet balance (Min 50 Rs required)")
+
+    await db.wallet_transactions.insert_one(
+        {
+            "_id": str(uuid.uuid4()),
+            "technician_id": user_id,
+            "type": "DEBIT",
+            "amount": ESCROW_HOLD_AMOUNT,
+            "running_balance": wallet["balance"],
+            "description": f"Escrow hold for booking {booking_id}",
+            "related_booking_id": booking_id,
+            "idempotency_key": f"hold_{booking_id}",
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
 
     payload = jsonable_encoder(_to_booking_response(updated, doc["customer_id"]))
     await ws_manager.notify_users([doc["customer_id"]], "booking_updated", payload)
@@ -195,9 +245,11 @@ async def start_job(
     doc = await db.bookings.find_one({"_id": booking_id, "technician_id": user_id})
     if not doc or doc["status"] not in ["CUSTOMER_CONFIRMED", "IN_TRANSIT"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid state to start")
-        
+
     if doc["verification"]["start_otp"] != payload.otp:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Start OTP")
+
+    _assert_within_geofence(doc, payload.latitude, payload.longitude)
 
     updated = await db.bookings.find_one_and_update(
         {"_id": booking_id},
@@ -218,30 +270,15 @@ async def complete_job(
     doc = await db.bookings.find_one({"_id": booking_id, "technician_id": user_id})
     if not doc or doc["status"] != "IN_PROGRESS":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid state to complete")
-        
+
     if doc["verification"]["end_otp"] != payload.otp:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid End OTP")
 
-    # Escrow Deduction
-    wallet = await db.technician_wallets.find_one_and_update(
-        {"_id": user_id},
-        {"$inc": {"balance": -50}},
-        return_document=True
-    )
-    
-    import uuid
-    transaction = {
-        "_id": str(uuid.uuid4()),
-        "technician_id": user_id,
-        "type": "DEBIT",
-        "amount": 50,
-        "running_balance": wallet["balance"] if wallet else 0,
-        "description": f"Platform Fee for booking {booking_id}",
-        "related_booking_id": booking_id,
-        "idempotency_key": f"fee_{booking_id}",
-        "created_at": datetime.now(timezone.utc)
-    }
-    await db.wallet_transactions.insert_one(transaction)
+    _assert_within_geofence(doc, payload.latitude, payload.longitude)
+
+    # Note: the 50 Rs platform fee was already debited as an escrow hold when the
+    # technician accepted the job (see accept_booking). Completing the job simply
+    # finalizes that hold — no further wallet mutation happens here.
 
     updated = await db.bookings.find_one_and_update(
         {"_id": booking_id},
@@ -272,28 +309,29 @@ async def cancel_booking(
     if role == "technician" and doc.get("technician_id") != user_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your booking")
 
-    # Enforce penalty if cancelled AFTER confirmation (meaning tech and customer both committed)
-    if doc["status"] in ["CUSTOMER_CONFIRMED", "IN_TRANSIT", "IN_PROGRESS"]:
-        technician_id = doc.get("technician_id")
-        if technician_id:
-            wallet = await db.technician_wallets.find_one_and_update(
-                {"_id": technician_id},
-                {"$inc": {"balance": -50}},
-                return_document=True
-            )
-            import uuid
-            transaction = {
+    # No cancellation penalty for either party. If a technician had already accepted,
+    # the 50 Rs escrow hold from accept_booking is refunded in full — cancelling a
+    # job (by either side) is a net-zero wallet event, not a chargeable one.
+    technician_id = doc.get("technician_id")
+    if technician_id and doc["status"] in ["TECH_ACCEPTED", "CUSTOMER_CONFIRMED", "IN_TRANSIT", "IN_PROGRESS"]:
+        wallet = await db.technician_wallets.find_one_and_update(
+            {"_id": technician_id},
+            {"$inc": {"balance": ESCROW_HOLD_AMOUNT}},
+            return_document=True
+        )
+        await db.wallet_transactions.insert_one(
+            {
                 "_id": str(uuid.uuid4()),
                 "technician_id": technician_id,
-                "type": "DEBIT",
-                "amount": 50,
+                "type": "REFUND",
+                "amount": ESCROW_HOLD_AMOUNT,
                 "running_balance": wallet["balance"] if wallet else 0,
-                "description": f"Cancellation Penalty for booking {booking_id}",
+                "description": f"Escrow refund — booking {booking_id} cancelled",
                 "related_booking_id": booking_id,
-                "idempotency_key": f"penalty_{booking_id}",
+                "idempotency_key": f"refund_cancel_{booking_id}",
                 "created_at": datetime.now(timezone.utc)
             }
-            await db.wallet_transactions.insert_one(transaction)
+        )
 
     new_status = "CANCELLED_BY_CUSTOMER" if role == "customer" else "CANCELLED_BY_TECH"
     updated = await db.bookings.find_one_and_update(

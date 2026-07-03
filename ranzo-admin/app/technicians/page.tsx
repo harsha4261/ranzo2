@@ -1,38 +1,45 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from '@/components/AdminNav';
-import { fetchTechnicians, getToken, approveTechnician, rejectTechnician } from '@/lib/api';
-
-type Technician = {
-  user_id: string;
-  name?: string;
-  phone_number?: string;
-  business_name?: string;
-  industry?: string;
-  verified?: boolean;
-  aadhaar_verified?: boolean;
-  online_status?: string;
-  active_booking_id?: string;
-  is_suspended?: boolean;
-};
+import { LoadingBanner, ErrorBanner } from '@/components/StatusBanner';
+import { AdminTechnician, fetchTechnicians, getToken, approveTechnician, rejectTechnician } from '@/lib/api';
 
 export default function TechniciansPage() {
   const router = useRouter();
-  const [items, setItems] = useState<Technician[]>([]);
+  const [items, setItems] = useState<AdminTechnician[]>([]);
   const [onlineStatus, setOnlineStatus] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const token = getToken();
     if (!token) {
       router.replace('/');
       return;
     }
-    fetchTechnicians(token, onlineStatus || undefined)
-      .then((r) => setItems(r.items ?? []))
-      .catch(() => router.replace('/'));
-  }, [router, onlineStatus]);
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetchTechnicians(token);
+      setItems(r.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load technicians');
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // The backend returns every technician; filter online status client-side.
+  const filtered = useMemo(
+    () => (onlineStatus ? items.filter((t) => t.online_status === onlineStatus) : items),
+    [items, onlineStatus]
+  );
 
   const handleApprove = async (userId: string) => {
     const token = getToken();
@@ -42,9 +49,8 @@ export default function TechniciansPage() {
       setItems((prev) =>
         prev.map((t) => (t.user_id === userId ? { ...t, verified: true } : t))
       );
-      alert('Approved!');
-    } catch (err: any) {
-      alert('Failed to approve: ' + err.message);
+    } catch (err) {
+      alert('Failed to approve: ' + (err instanceof Error ? err.message : 'unknown error'));
     }
   };
 
@@ -54,9 +60,8 @@ export default function TechniciansPage() {
     try {
       await rejectTechnician(token, userId);
       setItems((prev) => prev.filter((t) => t.user_id !== userId));
-      alert('Rejected!');
-    } catch (err: any) {
-      alert('Failed to reject: ' + err.message);
+    } catch (err) {
+      alert('Failed to reject: ' + (err instanceof Error ? err.message : 'unknown error'));
     }
   };
 
@@ -72,8 +77,11 @@ export default function TechniciansPage() {
         <option value="">All</option>
         <option value="online">Online</option>
         <option value="offline">Offline</option>
-        <option value="on_job">On job</option>
       </select>
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      {loading && <LoadingBanner />}
+
       <table style={{ width: '100%', background: '#fff', borderRadius: 12, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -87,7 +95,7 @@ export default function TechniciansPage() {
           </tr>
         </thead>
         <tbody>
-          {items.map((t) => (
+          {filtered.map((t) => (
             <tr key={t.user_id}>
               <td style={td}>{t.name ?? t.business_name ?? '—'}</td>
               <td style={td}>{t.phone_number ?? '—'}</td>
@@ -121,7 +129,7 @@ export default function TechniciansPage() {
               </td>
             </tr>
           ))}
-          {!items.length && (
+          {!loading && !filtered.length && (
             <tr>
               <td colSpan={7} style={td}>
                 No technicians registered.

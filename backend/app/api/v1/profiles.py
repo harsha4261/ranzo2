@@ -204,7 +204,10 @@ async def update_my_profile(
                 update_data["location_coords"] = [validated.longitude, validated.latitude]
 
     except ValidationError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors())
+        # include_context=False strips raw exception objects (e.g. from @model_validator
+        # ValueErrors) out of `ctx` — those aren't JSON-serializable and would otherwise
+        # turn a clean 422 into an unhandled 500.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors(include_context=False))
 
     profile = await update_profile(user_id, role, update_data, db)
     if not profile:

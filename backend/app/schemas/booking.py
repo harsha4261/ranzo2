@@ -51,3 +51,5 @@ class BookingResponse(BaseModel):
 class BookingStateUpdate(BaseModel):
     status: str
     otp: Optional[str] = None # Used for starting/completing a job
+    latitude: Optional[float] = None  # Technician's current GPS, for geofence check
+    longitude: Optional[float] = None

@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.api.deps import get_current_user_id, get_db
+from app.api.deps import get_current_token_payload, get_current_user_id, get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.schemas.auth import (
     CheckPhoneRequest,
@@ -167,13 +169,21 @@ async def reset_password(
     return MessageResponse(message="Password reset successfully")
 
 
-@router.post("/logout", response_model=MessageResponse, summary="Logout (frontend clears token)")
+@router.post("/logout", response_model=MessageResponse, summary="Logout and revoke this token")
 async def logout(
-    _user_id: str = Depends(get_current_user_id),
+    payload: dict = Depends(get_current_token_payload),
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
-    Logout endpoint. Token lifecycle is managed by the frontend (local store).
-    This endpoint validates the token is genuine and acknowledges the logout.
-    The frontend must delete the token from local storage after this call.
+    Logout endpoint. Revokes this specific token server-side (via its `jti`)
+    so it can no longer be used even if the frontend fails to delete it.
+    The frontend must still delete the token from local storage after this call.
     """
+    jti = payload.get("jti")
+    if jti:
+        await db.revoked_tokens.update_one(
+            {"_id": jti},
+            {"$setOnInsert": {"user_id": payload["sub"], "revoked_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
     return MessageResponse(message="Logged out successfully. Please delete your token from local storage.")
