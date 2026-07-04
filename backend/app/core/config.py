@@ -1,10 +1,11 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
-    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_URL: str = Field(default="mongodb://localhost:27017", alias="MONGO_URL")
     DB_NAME: str = "ranzo"
     REDIS_URL: str = "redis://localhost:6379"
     JWT_SECRET: str = "change-me-in-production"
